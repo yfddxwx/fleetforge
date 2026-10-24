@@ -15,6 +15,12 @@
     "dist",
     "public"
   ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\""
+  },
   "dependencies": {
     "@fastify/static": "^8.0.3",
     "@fastify/websocket": "^11.0.1",
@@ -27,6 +33,9 @@
     "fastify": "^5.2.1"
   },
   "devDependencies": {
-    "vitest": "^3.0.5"
+    "@fleetforge/sim-agent": "workspace:*",
+    "vitest": "^3.0.5",
+    "@types/ws": "^8.5.13",
+    "ws": "^8.18.0"
   }
 }

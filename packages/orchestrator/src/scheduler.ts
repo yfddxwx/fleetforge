@@ -58,6 +58,11 @@ export class Scheduler {
     this.runner = new SessionRunner(store, ingestor, registry);
   }
 
+  /** Expose follow-up capability checks to the API layer. */
+  runnerFollowUpCapable(sessionId: string): boolean {
+    return this.runner.followUpCapable(sessionId);
+  }
+
   /** Subscribe to live envelopes for WS fan-out (M4). */
   onEvent(cb: (taskId: string, envelope: unknown) => void): void {
     this.onEventCallbacks.push(cb);
@@ -85,6 +90,21 @@ export class Scheduler {
     }
     this.store.tasks.update(taskId, { status: "cancelled", finishedAt: Date.now() });
     this.store.locks.releaseByTask(taskId);
+  }
+
+  /**
+   * Send a follow-up instruction to a running task's session.
+   * Returns false when the task isn't running or its driver can't accept it.
+   */
+  async followUp(taskId: string, text: string): Promise<{ sent: boolean; reason?: string }> {
+    const task = this.store.tasks.get(taskId);
+    if (!task?.sessionId) return { sent: false, reason: "task has no session" };
+    if (!this.runner.isRunning(task.sessionId)) return { sent: false, reason: "session not running" };
+    if (!this.runner.followUpCapable(task.sessionId)) {
+      return { sent: false, reason: "driver does not support mid-session follow-ups" };
+    }
+    await this.runner.followUp(task.sessionId, text);
+    return { sent: true };
   }
 
   /** Try to start queued tasks while capacity allows. */

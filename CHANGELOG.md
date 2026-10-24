@@ -3,6 +3,16 @@
 All notable changes to FleetForge are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/) · [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [0.5.0] - 2026-10-25 (M4)
+
+### Added
+- `packages/server` FleetServer (Fastify): REST under `/api` (tasks CRUD + dispatch/cancel/followup, events replay with seq cursor, transcript aggregation, sessions, agents roster with capability matrix + usage, usage/aggregate, settings, doctor, prices GET/PUT) and WebSocket gateway `/ws` (hello/event/task/notification; client followup + ping).
+- Follow-up path end to end: `SessionRunner.followUp` → driver stdin → `followup` event persisted & broadcast; capability-gated (409 when unsupported).
+- `fleet serve` (SIGINT/SIGTERM graceful), `fleet board` — TTY keyboard view (j/k navigate, d dispatch, c cancel-with-confirm, f follow-up prompt, r refresh, ? help, q quit) reading the WAL DB while commands go over HTTP; non-interactive one-shot mode for scripts.
+- `docs/shortcuts.md` keymap for CLI board + planned web console keys.
+- Session transcript endpoint (messages/tools/follow-ups ordered).
+- 6 server integration tests (live WS, REST lifecycle, follow-up delivery, aggregates); workspace now at 100 tests.
+
 ## [0.4.0] - 2026-10-25 (M3)
 
 ### Added

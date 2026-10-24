@@ -43,6 +43,22 @@ export class SessionRunner {
     return this.active.has(sessionId);
   }
 
+  /** Push an additional instruction into a live session (M4). */
+  async followUp(sessionId: string, text: string): Promise<void> {
+    const session = this.active.get(sessionId);
+    if (!session) throw new Error(`session not running: ${sessionId}`);
+    await session.sendFollowUp(text);
+    this.ingestor.ingest(sessionId, { kind: "followup", payload: { text } });
+  }
+
+  /** Does the driver of this session support follow-ups? */
+  followUpCapable(sessionId: string): boolean {
+    const session = this.store.sessions.get(sessionId);
+    if (!session) return false;
+    const driver = this.registry.get(session.driver);
+    return driver?.capabilities.followUp === true;
+  }
+
   /** Cancel a live session by sessionId (idempotent, process-tree kill). */
   async cancel(sessionId: string): Promise<void> {
     const session = this.active.get(sessionId);

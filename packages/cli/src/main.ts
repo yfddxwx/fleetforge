@@ -3,6 +3,8 @@ import process from "node:process";
 import { Command } from "commander";
 import { taskNew } from "./commands/task-new.js";
 import { renderDoctor, runDoctor } from "./commands/doctor.js";
+import { serve } from "./commands/serve.js";
+import { board } from "./commands/board.js";
 
 const version = "0.1.0";
 
@@ -45,6 +47,36 @@ task
       ...(options.db !== undefined ? { db: options.db } : {}),
     });
     process.exitCode = code;
+  });
+
+program
+  .command("serve")
+  .description("run the command deck: REST + WebSocket + scheduler + watchdog")
+  .option("-p, --port <port>", "listen port (default 7700)", (v) => Number(v))
+  .option("--host <host>", "listen host (default 127.0.0.1)")
+  .option("--db <file>", "sqlite database file")
+  .option("--state <dir>", "state directory (worktrees live here)")
+  .action(async (options) => {
+    await serve({
+      ...(options.port !== undefined ? { port: options.port } : {}),
+      ...(options.host !== undefined ? { host: options.host } : {}),
+      ...(options.db !== undefined ? { db: options.db } : {}),
+      ...(options.state !== undefined ? { state: options.state } : {}),
+    });
+  });
+
+program
+  .command("board")
+  .description("keyboard-driven aggregate view over the fleet (j/k · d/c/f)")
+  .option("--db <file>", "sqlite database file")
+  .option("--url <url>", "fleet serve base URL (default http://127.0.0.1:7700)")
+  .option("--interval <ms>", "refresh interval", (v) => Number(v))
+  .action(async (options) => {
+    await board({
+      ...(options.db !== undefined ? { db: options.db } : {}),
+      ...(options.url !== undefined ? { url: options.url } : {}),
+      ...(options.interval !== undefined ? { intervalMs: options.interval } : {}),
+    });
   });
 
 program
