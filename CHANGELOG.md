@@ -3,6 +3,19 @@
 All notable changes to FleetForge are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/) · [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [0.7.0] - 2026-10-25 (M6 + M7)
+
+### Added
+- Web console (`apps/web`, React 19 + Vite + Tailwind v4 + Zustand), served by `fleet serve` when built (SPA fallback, `/api` + `/ws` excluded):
+  - **Board** (M6): backlog / running / review / done / issues lanes with HTML5 drag & drop (drop → operator intent: cancel / merge dry-run), j/k keyboard navigation with d dispatch + c cancel, live WS event feed, card costs & branches.
+  - **Roster** (M6): agent table — ready/login/install state, version, running count, token totals, cost, capability flags with over-claim markers.
+  - **Task detail** (M6): events (live + historical replay), transcript, diff tabs (1/2/3 keys); dry-run / merge / discard actions; follow-up input.
+  - **Cost dashboard** (M7): group by task/agent/model/day, token & event totals, total spend; side-by-side editable price table (JSON, PUT /api/prices).
+  - **Settings** (M7): concurrency caps editor.
+  - **Notifications** (M7): footer stack fed by WS notification frames (merge success/failure, follow-up delivery, settings saves).
+- `SimDriver` now pre-validates inline JSON prompts so shell-escaping mistakes surface as clear task errors instead of cryptic agent crashes.
+- Verified end-to-end in a real browser (IAB): dispatch → review → dry-run "mergeable" → merge (ff) → done + commit on main; screenshots captured.
+
 ## [0.6.0] - 2026-10-25 (M5)
 
 ### Added

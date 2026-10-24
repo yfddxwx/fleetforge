@@ -3,6 +3,8 @@ import process from "node:process";
 import { createRequire } from "node:module";
 import Fastify, { type FastifyInstance } from "fastify";
 import websocket from "@fastify/websocket";
+import fastifyStatic from "@fastify/static";
+import { existsSync } from "node:fs";
 import type { WebSocket } from "ws";
 import { defaultRegistry, type DriverRegistry } from "@fleetforge/drivers";
 import type { EventEnvelope } from "@fleetforge/schema";
@@ -78,6 +80,24 @@ export class FleetServer {
   async init(): Promise<void> {
     await this.app.register(websocket);
     this.registerRoutes();
+    await this.serveWebConsole();
+  }
+
+  /** Serve the built web console when apps/web/dist exists (no extra deploy). */
+  private async serveWebConsole(): Promise<void> {
+    const candidates = [
+      process.env["FLEETFORGE_WEB_DIST"],
+      join(this.options.stateDir, "web"),
+    ].filter((dir): dir is string => typeof dir === "string" && existsSync(dir));
+    if (candidates.length === 0) return;
+    await this.app.register(fastifyStatic, { root: candidates[0] as string, prefix: "/" });
+    this.app.setNotFoundHandler((request, reply) => {
+      if (request.url.startsWith("/api") || request.url.startsWith("/ws")) {
+        reply.code(404).send({ error: "not found" });
+        return;
+      }
+      void reply.sendFile("index.html");
+    });
   }
 
   /** Boot recovery + watchdog, then listen. Resolves with the actual port. */

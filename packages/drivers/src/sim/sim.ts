@@ -97,6 +97,8 @@ export class SimDriver implements AgentDriver {
    * Resolve the prompt into a scenario file. Files/inlines are passed through;
    * plain text becomes a deterministic single-say scenario written to a
    * per-session temp file (sim-agent keeps --script file-based for auditability).
+   * Inline JSON is validated here so prompt-escaping mistakes surface as a
+   * clear task error instead of a cryptic agent crash.
    */
   private resolveScenarioPath(prompt: string): string {
     if (prompt.startsWith("@")) {
@@ -105,6 +107,14 @@ export class SimDriver implements AgentDriver {
       return p;
     }
     if (prompt.trimStart().startsWith("{")) {
+      try {
+        JSON.parse(prompt);
+      } catch (error) {
+        throw new Error(
+          `sim prompt is inline JSON but does not parse (${error instanceof Error ? error.message : String(error)}); ` +
+            "when passing a scenario through a shell/API, escape newlines as \\n inside the JSON string",
+        );
+      }
       const dir = mkdtempSync(join(tmpdir(), "fleetforge-sim-"));
       const file = join(dir, "scenario.inline.json");
       writeFileSync(file, prompt, "utf8");
@@ -112,7 +122,6 @@ export class SimDriver implements AgentDriver {
     }
     const dir = mkdtempSync(join(tmpdir(), "fleetforge-sim-"));
     const file = join(dir, "scenario.json");
-    const escaped = JSON.stringify(prompt);
     writeFileSync(
       file,
       JSON.stringify(
@@ -130,7 +139,6 @@ export class SimDriver implements AgentDriver {
       ),
       "utf8",
     );
-    void escaped;
     return file;
   }
 

@@ -77,12 +77,6 @@ async function until(predicate: () => boolean | Promise<boolean>, timeoutMs = 30
   }
 }
 
-function nextWsMessage(): Promise<Record<string, unknown>> {
-  return new Promise((resolve) => {
-    socket.once("message", (data) => resolve(JSON.parse(data.toString()) as Record<string, unknown>));
-  });
-}
-
 /** Consume WS messages until one matches (event frames interleave freely). */
 function waitForWs(
   match: (msg: Record<string, unknown>) => boolean,
