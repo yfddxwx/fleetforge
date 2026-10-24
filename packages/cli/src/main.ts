@@ -2,6 +2,7 @@
 import process from "node:process";
 import { Command } from "commander";
 import { taskNew } from "./commands/task-new.js";
+import { renderDoctor, runDoctor } from "./commands/doctor.js";
 
 const version = "0.1.0";
 
@@ -44,6 +45,15 @@ task
       ...(options.db !== undefined ? { db: options.db } : {}),
     });
     process.exitCode = code;
+  });
+
+program
+  .command("doctor")
+  .description("probe local agent CLIs: installed, version, login state, capability matrix")
+  .action(async () => {
+    const report = await runDoctor();
+    process.stdout.write(`${renderDoctor(report)}\n`);
+    process.exitCode = report.healthy ? 0 : 1;
   });
 
 /* c8 ignore next 3 */

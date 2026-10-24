@@ -4,4 +4,7 @@ export * from "./claude-family.js";
 export * from "./line-session.js";
 export * from "./sim/sim.js";
 export * from "./generic-shell/generic-shell.js";
+export * from "./claude-code/claude-code.js";
+export * from "./codex/codex-wire.js";
+export * from "./codex/codex.js";
 export * from "./registry.js";

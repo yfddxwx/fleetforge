@@ -48,6 +48,7 @@ export class GenericShellDriver implements AgentDriver {
         const version = (result.stdout ?? result.stderr ?? "").trim().split("\n")[0] ?? null;
         return {
           driverId: this.id,
+          label: this.label,
           installed: !result.error,
           version: result.error ? null : version || "unknown",
           authenticated: "unknown",
@@ -57,6 +58,7 @@ export class GenericShellDriver implements AgentDriver {
       } catch {
         return {
           driverId: this.id,
+          label: this.label,
           installed: false,
           version: null,
           authenticated: "unknown",
@@ -67,6 +69,7 @@ export class GenericShellDriver implements AgentDriver {
     }
     return {
       driverId: this.id,
+      label: this.label,
       installed: true,
       version: null,
       authenticated: "unknown",

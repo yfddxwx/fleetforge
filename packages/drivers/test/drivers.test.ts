@@ -128,8 +128,9 @@ describe("generic-shell parser", () => {
 describe("registry", () => {
   it("registers, requires, and rejects duplicates", () => {
     const registry = defaultRegistry({ entry: simEntry });
-    expect(registry.ids()).toEqual(["sim"]);
+    expect(registry.ids()).toEqual(["sim", "claude-code", "codex", "zcode"]);
     expect(registry.require("sim").id).toBe("sim");
+    expect(registry.require("claude-code").capabilities.followUp).toBe(false);
     expect(() => registry.require("nope")).toThrow(/unknown driver/);
 
     const dup = new DriverRegistry();

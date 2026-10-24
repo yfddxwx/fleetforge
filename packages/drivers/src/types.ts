@@ -33,6 +33,7 @@ export interface DriverCapabilities {
 
 export interface DriverDetect {
   driverId: string;
+  label: string;
   installed: boolean;
   version: string | null;
   /** Login/subscription state when the CLI exposes a check; otherwise "unknown". */

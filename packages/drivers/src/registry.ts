@@ -1,6 +1,8 @@
 import type { AgentDriver } from "./types.js";
 import { GenericShellDriver } from "./generic-shell/generic-shell.js";
 import { SimDriver, type SimDriverOptions } from "./sim/sim.js";
+import { createClaudeCodeDriver, createZcodeDriver } from "./claude-code/claude-code.js";
+import { CodexDriver } from "./codex/codex.js";
 
 /** Lookup of drivers by id; registries are plain maps with registration. */
 export class DriverRegistry {
@@ -42,8 +44,8 @@ export interface DefaultRegistryOptions extends SimDriverOptions {
 }
 
 /**
- * Built-in registry: sim + generic-shell. Real CLI drivers (claude-code,
- * codex, zcode) self-register in M2 via detect().
+ * Built-in registry: sim + generic-shell + the real CLI drivers
+ * (claude-code, codex, zcode). Presence is probed lazily via detect().
  */
 export function defaultRegistry(options: DefaultRegistryOptions): DriverRegistry {
   const registry = new DriverRegistry();
@@ -53,6 +55,9 @@ export function defaultRegistry(options: DefaultRegistryOptions): DriverRegistry
       ...(options.speed !== undefined ? { speed: options.speed } : {}),
     }),
   );
+  registry.register(createClaudeCodeDriver());
+  registry.register(new CodexDriver());
+  registry.register(createZcodeDriver());
   for (const shell of options.shells ?? []) {
     registry.register(new GenericShellDriver(shell.config, shell.id, shell.label));
   }

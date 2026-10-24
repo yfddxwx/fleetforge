@@ -38,6 +38,7 @@ export class SimDriver implements AgentDriver {
     if (!entry || !existsSync(entry)) {
       return {
         driverId: this.id,
+        label: this.label,
         installed: false,
         version: null,
         authenticated: true, // no auth by design
@@ -47,6 +48,7 @@ export class SimDriver implements AgentDriver {
     }
     return {
       driverId: this.id,
+      label: this.label,
       installed: true,
       version: "local",
       authenticated: true,

@@ -3,6 +3,15 @@
 All notable changes to FleetForge are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/) · [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [0.3.0] - 2026-10-25 (M2)
+
+### Added
+- Real CLI drivers: `claude-code` (`-p --output-format stream-json --verbose`, `--resume`), `codex` (`exec --json`, `exec resume <thread>`), `zcode` (claude-family headless protocol). All share the drain-aware line session loop; env overrides `FLEETFORGE_CLAUDE_PATH/_CODEX_PATH/_ZCODE_PATH`.
+- `codex-wire` parser: thread/turn/item mapping (agent_message, reasoning, command_execution, file_change, mcp/web_search), turn usage, turn.failed/error → failed completion.
+- Driver conformance suite: one canonical scenario → per-family wire renderers (claude/sim/zcode/codex/generic-shell) → pure parsers → capability filter → golden sequence identity; tool identity by `toolCallId`, driver-dialect tool names documented; unknown wire lines always fall back to `raw`.
+- `fleet doctor`: environment checks (git/node/sim fixture), per-agent installed/version/login/capability matrix with actionable hints, price-table source. Verified on a machine with no real CLIs: reports exactly what is missing and how to fix.
+- `DriverDetect.label` added for roster/doctor surfaces.
+
 ## [0.2.0] - 2026-10-25 (M1)
 
 ### Added
