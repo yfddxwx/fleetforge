@@ -3,6 +3,13 @@
 All notable changes to FleetForge are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/) · [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [0.6.0] - 2026-10-25 (M5)
+
+### Added
+- `packages/worktree` Reviewer: diff summary (numstat + name-status + patch + ahead/behind), real three-way conflict precheck via `git merge-tree --write-tree` (conflict file list parsed across git ≥2.39 output shapes), and merges that never touch any checkout — `ff` moves the base ref with `update-ref`; `squash`/`merge` synthesize commits in a detached temp worktree then move the ref. Discard with dirty-guard.
+- Server review API: `GET /api/tasks/:id/diff`, `POST /api/tasks/:id/merge` (dry-run default; strategies ff/squash/merge; auto worktree reclaim; conflict → task `conflict` + step-by-step resolution guidance), `POST /api/tasks/:id/discard` (dirty → 409 `confirmationRequired`).
+- 13 new tests: 9 reviewer unit tests on real git repos (ff/squash/dry-run/conflict/dirty) + 4 server integration tests covering the full review lifecycle including a real conflict produced by base-side edits.
+
 ## [0.5.0] - 2026-10-25 (M4)
 
 ### Added

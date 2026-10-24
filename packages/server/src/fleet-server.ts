@@ -9,7 +9,7 @@ import type { EventEnvelope } from "@fleetforge/schema";
 import { newId } from "@fleetforge/schema";
 import { FleetStore } from "@fleetforge/store";
 import { PriceBook } from "@fleetforge/usage";
-import { WorktreeManager, currentBranch } from "@fleetforge/worktree";
+import { WorktreeManager, currentBranch, Reviewer, MergeConflictError } from "@fleetforge/worktree";
 import { EventIngestor, Scheduler } from "@fleetforge/orchestrator";
 
 const nodeRequire = createRequire(import.meta.url);
@@ -42,6 +42,7 @@ export class FleetServer {
   private readonly registry: DriverRegistry;
   private readonly priceBook: PriceBook;
   private readonly worktrees: WorktreeManager;
+  private readonly reviewer: Reviewer;
   private readonly clients = new Set<WebSocket>();
   private readonly options: FleetServerOptions;
 
@@ -62,6 +63,7 @@ export class FleetServer {
         })(),
     });
     this.worktrees = new WorktreeManager(join(options.stateDir, "worktrees"));
+    this.reviewer = new Reviewer(this.worktrees);
     const ingestor = new EventIngestor(this.store, this.priceBook);
     this.scheduler = new Scheduler(this.store, this.registry, ingestor, this.worktrees, {
       maxConcurrent: this.store.settings.get<number>("maxConcurrent") ?? 3,
@@ -253,6 +255,112 @@ export class FleetServer {
       return { taskId: id, lines };
     });
 
+    // ---- review & merge (M5) ----
+    this.app.get("/api/tasks/:id/diff", async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const task = this.requireReviewable(id, reply);
+      if (!task) return reply;
+      try {
+        const summary = await this.reviewer.diffSummary({
+          taskId: id,
+          repoPath: task.repoPath,
+          branch: task.branch as string,
+          baseBranch: task.baseBranch,
+          worktreePath: task.worktreePath,
+        });
+        return reply.send(summary);
+      } catch (error) {
+        return reply.code(500).send({ error: error instanceof Error ? error.message : "diff failed" });
+      }
+    });
+
+    this.app.post<{ Body: { dryRun?: boolean; strategy?: "ff" | "squash" | "merge"; message?: string; reclaim?: boolean } }>(
+      "/api/tasks/:id/merge",
+      async (request, reply) => {
+        const { id } = request.params as { id: string };
+        const task = this.requireReviewable(id, reply);
+        if (!task) return reply;
+        const body = request.body ?? {};
+        const dryRun = body.dryRun !== false; // default: dry-run (红线: merge must be previewable)
+        const strategy = body.strategy ?? task.mergeStrategy;
+        try {
+          const result = await this.reviewer.merge(
+            {
+              taskId: id,
+              repoPath: task.repoPath,
+              branch: task.branch as string,
+              baseBranch: task.baseBranch,
+              worktreePath: task.worktreePath,
+            },
+            strategy,
+            { dryRun, ...(body.message !== undefined ? { message: body.message } : {}) },
+          );
+          if (!dryRun && result.merged) {
+            this.store.tasks.update(id, { status: "done", finishedAt: Date.now() });
+            if (body.reclaim !== false && task.worktreePath) {
+              await this.reviewer.discard(
+                {
+                  taskId: id,
+                  repoPath: task.repoPath,
+                  branch: task.branch as string,
+                  baseBranch: task.baseBranch,
+                  worktreePath: task.worktreePath,
+                },
+                { force: true },
+              );
+            }
+            this.broadcast({ type: "notification", level: "success", text: `task merged (${strategy})` });
+          }
+          return reply.send({ ...result, task: this.store.tasks.get(id) });
+        } catch (error) {
+          if (error instanceof MergeConflictError) {
+            this.store.tasks.update(id, { status: "conflict", error: error.message });
+            return reply.code(409).send({
+              error: error.message,
+              conflicts: error.conflicts,
+              guidance: [
+                `1. cd ${task.worktreePath ?? "<worktree>"}`,
+                `2. git merge ${task.baseBranch}  # resolve conflicts in: ${error.conflicts.join(", ")}`,
+                "3. commit, then re-run merge with dryRun:false",
+              ],
+            });
+          }
+          return reply.code(500).send({ error: error instanceof Error ? error.message : "merge failed" });
+        }
+      },
+    );
+
+    this.app.post<{ Body: { force?: boolean } }>("/api/tasks/:id/discard", async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const task = this.store.tasks.get(id);
+      if (!task) return reply.code(404).send({ error: "task not found" });
+      if (!task.branch || !task.worktreePath) {
+        this.store.tasks.update(id, { status: "cancelled", finishedAt: Date.now() });
+        return reply.send({ task: this.store.tasks.get(id), removedWorktree: false, removedBranch: false, wasDirty: false });
+      }
+      try {
+        const result = await this.reviewer.discard(
+          {
+            taskId: id,
+            repoPath: task.repoPath,
+            branch: task.branch,
+            baseBranch: task.baseBranch,
+            worktreePath: task.worktreePath,
+          },
+          { force: request.body?.force === true },
+        );
+        this.store.tasks.update(id, { status: "cancelled", finishedAt: Date.now() });
+        this.broadcast({ type: "notification", level: "info", text: `task discarded` });
+        return reply.send({ ...result, task: this.store.tasks.get(id) });
+      } catch (error) {
+        // dirty without force → explicit confirmation required (红线)
+        if (error instanceof Error && error.name === "DirtyWorktreeError") {
+          return reply.code(409).send({ error: error.message, confirmationRequired: true });
+        }
+        return reply.code(500).send({ error: error instanceof Error ? error.message : "discard failed" });
+      }
+    });
+
     // ---- sessions / agents / usage / settings / doctor ----
     this.app.get("/api/sessions", async () => ({
       sessions: this.store.sessions.listByStatus("running"),
@@ -322,6 +430,20 @@ export class FleetServer {
 
   runnerFollowUpCapable(sessionId: string): boolean {
     return this.scheduler.runnerFollowUpCapable(sessionId);
+  }
+
+  /** Task must exist and have a branch to review/merge; replies otherwise. */
+  private requireReviewable(id: string, reply: { code: (n: number) => { send: (b: unknown) => unknown } }) {
+    const task = this.store.tasks.get(id);
+    if (!task) {
+      reply.code(404).send({ error: "task not found" });
+      return null;
+    }
+    if (!task.branch || !task.worktreePath) {
+      reply.code(409).send({ error: "task has no worktree/branch (not dispatched yet)" });
+      return null;
+    }
+    return task;
   }
 
   private broadcast(frame: WsFrame): void {

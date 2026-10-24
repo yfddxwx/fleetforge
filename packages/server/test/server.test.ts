@@ -83,6 +83,26 @@ function nextWsMessage(): Promise<Record<string, unknown>> {
   });
 }
 
+/** Consume WS messages until one matches (event frames interleave freely). */
+function waitForWs(
+  match: (msg: Record<string, unknown>) => boolean,
+  timeoutMs: number,
+  sock: WebSocket = socket,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("waitForWs timeout")), timeoutMs);
+    const onMessage = (data: import("ws").RawData): void => {
+      const msg = JSON.parse(data.toString()) as Record<string, unknown>;
+      if (match(msg)) {
+        clearTimeout(timer);
+        sock.removeListener("message", onMessage);
+        resolve(msg);
+      }
+    };
+    sock.on("message", onMessage);
+  });
+}
+
 describe("FleetServer REST + WS", () => {
   it("hello frame on connect", async () => {
     const fresh = new WebSocket(wsUrl);
@@ -158,9 +178,9 @@ describe("FleetServer REST + WS", () => {
 
       await until(async () => (await server.store.tasks.get(taskId))?.status === "running", 15_000);
 
-      const ack = nextWsMessage();
       socket.send(JSON.stringify({ type: "followup", taskId, text: "status?" }));
-      const notification = await ack;
+      // event frames may interleave; wait for the notification specifically
+      const notification = await waitForWs((msg) => msg["type"] === "notification", 15_000);
       expect(notification["type"]).toBe("notification");
 
       await until(
