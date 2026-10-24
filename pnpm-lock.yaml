@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@fleetforge/cli':
+        specifier: workspace:*
+        version: link:packages/cli
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
@@ -26,6 +30,9 @@ importers:
       '@fleetforge/schema':
         specifier: workspace:*
         version: link:../../packages/schema
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
     devDependencies:
       vitest:
         specifier: ^3.0.5
@@ -58,16 +65,25 @@ importers:
         specifier: ^13.1.0
         version: 13.1.0
     devDependencies:
+      '@fleetforge/sim-agent':
+        specifier: workspace:*
+        version: link:../../fixtures/sim-agent
       vitest:
         specifier: ^3.0.5
         version: 3.2.7(@types/node@22.20.5)
 
   packages/drivers:
     dependencies:
+      '@fleetforge/cli':
+        specifier: workspace:*
+        version: link:../cli
       '@fleetforge/schema':
         specifier: workspace:*
         version: link:../schema
     devDependencies:
+      '@fleetforge/sim-agent':
+        specifier: workspace:*
+        version: link:../../fixtures/sim-agent
       vitest:
         specifier: ^3.0.5
         version: 3.2.7(@types/node@22.20.5)
@@ -162,6 +178,9 @@ importers:
       '@fleetforge/schema':
         specifier: workspace:*
         version: link:../schema
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
     devDependencies:
       vitest:
         specifier: ^3.0.5

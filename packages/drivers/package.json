@@ -21,9 +21,11 @@
     "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
-    "@fleetforge/schema": "workspace:*"
+    "@fleetforge/schema": "workspace:*",
+    "@fleetforge/cli": "workspace:*"
   },
   "devDependencies": {
-    "vitest": "^3.0.5"
+    "vitest": "^3.0.5",
+    "@fleetforge/sim-agent": "workspace:*"
   }
 }

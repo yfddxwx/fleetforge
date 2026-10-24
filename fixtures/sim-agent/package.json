@@ -9,10 +9,31 @@
   "files": [
     "dist"
   ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\""
+  },
   "dependencies": {
-    "@fleetforge/schema": "workspace:*"
+    "@fleetforge/schema": "workspace:*",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "vitest": "^3.0.5"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/main.d.ts",
+      "default": "./dist/main.js"
+    },
+    "./runner": {
+      "types": "./dist/runner.d.ts",
+      "default": "./dist/runner.js"
+    },
+    "./scenario": {
+      "types": "./dist/scenario.d.ts",
+      "default": "./dist/scenario.js"
+    }
   }
 }

@@ -3,6 +3,17 @@
 All notable changes to FleetForge are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/) · [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [0.2.0] - 2026-10-25 (M1)
+
+### Added
+- `packages/store`: SQLite persistence (better-sqlite3, WAL) — tasks/sessions/events/usage/worktree_locks/settings; per-session monotonic seq allocation; invalid payloads downgrade to `raw` envelopes; DB-level worktree/branch/task mutex with stale-lock reconciliation.
+- `fixtures/sim-agent`: programmable fake coding-agent CLI — claude-stream-json-shaped wire, real file/shell/git side effects, streaming deltas, tool calls, usage, crash injection, stdin follow-ups; deterministic under `--speed 0`.
+- `packages/drivers`: shared line-protocol session loop (lifecycle synthesis, stderr-drain-aware completion, process-tree reaping), claude-family wire parser (pure `parseWireLine`), `sim` driver, `generic-shell` driver (schema-JSON stdout capture), driver registry; Windows `taskkill /T` tree-kill tested for grandchildren.
+- `packages/usage`: configurable price table (glob patterns, JSON override via `FLEETFORGE_PRICES`), cost estimation, unpriced-model visibility.
+- `packages/orchestrator`: ingestion pipeline (validate → envelope → SQLite → usage cost rollup) and `SessionRunner` (spawn → pump → finalize task/session state machine).
+- `packages/cli`: `fleet version`, `fleet task new` — inline M1 mode with live normalized event stream rendering (deltas folded, tools/files/tokens colorized).
+- 69 tests across 7 suites; `fleet task new --agent sim "写个 FizzBuzz"` verified end-to-end on Windows.
+
 ## [0.1.0] - 2026-10-25 (M0)
 
 ### Added

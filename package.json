@@ -15,7 +15,11 @@
     "lint": "eslint .",
     "coverage:core": "pnpm --filter @fleetforge/schema run test:coverage",
     "typecheck": "pnpm -r --workspace-concurrency=1 run typecheck",
-    "clean": "pnpm -r run clean && node -e \"fs.rmSync('node_modules',{recursive:true,force:true})\""
+    "clean": "pnpm -r run clean && node -e \"fs.rmSync('node_modules',{recursive:true,force:true})\"",
+    "fleet": "node packages/cli/dist/main.js"
+  },
+  "dependencies": {
+    "@fleetforge/cli": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

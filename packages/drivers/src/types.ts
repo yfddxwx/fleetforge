@@ -61,10 +61,15 @@ export interface SessionExit {
 }
 
 export interface DriverSession {
-  readonly sessionId: string;
-  readonly pid: number | null;
+  sessionId: string;
+  pid: number | null;
   /** Normalized event stream; ends after `session.completed`. */
   events: AsyncIterable<AgentEventBody>;
+  /**
+   * Driver-resumable handle for this session (e.g. CLI session id), when the
+   * wire format exposes one; null otherwise.
+   */
+  externalRef(): string | null;
   /**
    * Send an additional instruction to the running agent.
    * Rejects with FollowUpUnsupportedError when capabilities.followUp is false.
