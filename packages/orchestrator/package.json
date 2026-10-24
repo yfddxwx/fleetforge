@@ -1,0 +1,27 @@
+{
+  "name": "@fleetforge/orchestrator",
+  "version": "0.1.0",
+  "description": "Fleet scheduler: task queue, concurrency caps, worktree mutex, heartbeats, crash recovery.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@fleetforge/drivers": "workspace:*",
+    "@fleetforge/schema": "workspace:*",
+    "@fleetforge/store": "workspace:*",
+    "@fleetforge/usage": "workspace:*",
+    "@fleetforge/worktree": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.5"
+  }
+}

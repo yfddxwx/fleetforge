@@ -1,0 +1,25 @@
+{
+  "name": "@fleetforge/store",
+  "version": "0.1.0",
+  "description": "SQLite persistence (better-sqlite3): tasks, sessions, events, usage, locks, settings.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@fleetforge/schema": "workspace:*",
+    "better-sqlite3": "^12.2.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "vitest": "^3.0.5"
+  }
+}

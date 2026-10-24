@@ -1,0 +1,20 @@
+{
+  "name": "@fleetforge/worktree",
+  "version": "0.1.0",
+  "description": "git worktree lifecycle: create, node_modules reuse, conflict precheck, reclaim.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "devDependencies": {
+    "vitest": "^3.0.5"
+  }
+}

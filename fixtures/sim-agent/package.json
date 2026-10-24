@@ -1,0 +1,18 @@
+{
+  "name": "@fleetforge/sim-agent",
+  "version": "0.1.0",
+  "description": "Programmable fake coding-agent CLI for tests & CI: replay streaming output, tool calls, usage, mid-run crashes.",
+  "type": "module",
+  "bin": {
+    "sim-agent": "./dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@fleetforge/schema": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.5"
+  }
+}

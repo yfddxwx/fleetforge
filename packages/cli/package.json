@@ -1,0 +1,25 @@
+{
+  "name": "@fleetforge/cli",
+  "version": "0.1.0",
+  "description": "fleet CLI: serve / task / board / doctor / version",
+  "type": "module",
+  "bin": {
+    "fleet": "./dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@fleetforge/drivers": "workspace:*",
+    "@fleetforge/orchestrator": "workspace:*",
+    "@fleetforge/schema": "workspace:*",
+    "@fleetforge/server": "workspace:*",
+    "@fleetforge/store": "workspace:*",
+    "@fleetforge/usage": "workspace:*",
+    "@fleetforge/worktree": "workspace:*",
+    "commander": "^13.1.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.5"
+  }
+}
