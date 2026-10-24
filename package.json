@@ -13,7 +13,7 @@
     "build": "pnpm -r --workspace-concurrency=1 run build",
     "test": "pnpm -r --workspace-concurrency=1 run test",
     "lint": "eslint .",
-    "coverage:core": "pnpm --filter @fleetforge/schema run test:coverage",
+    "coverage:core": "pnpm --filter @fleetforge/schema --filter @fleetforge/worktree --filter @fleetforge/orchestrator run test:coverage",
     "typecheck": "pnpm -r --workspace-concurrency=1 run typecheck",
     "clean": "pnpm -r run clean && node -e \"fs.rmSync('node_modules',{recursive:true,force:true})\"",
     "fleet": "node packages/cli/dist/main.js"

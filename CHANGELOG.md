@@ -3,6 +3,15 @@
 All notable changes to FleetForge are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/) · [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [0.4.0] - 2026-10-25 (M3)
+
+### Added
+- `packages/worktree`: git worktree lifecycle — `fleet/<id8>-<slug>` branch per task, node_modules reuse via junction (Windows)/symlink (POSIX), dirty guard, force reclaim with fallback, fleet worktree listing. Real-git tests incl. isolation & branch-only commits.
+- `packages/orchestrator` Scheduler: priority queue with two-tier concurrency caps (global + per-repo), parallel task startup with reservation accounting, DB-level worktree/branch mutex acquired before every run, crash restart policy (`attempt < maxAttempts → requeue`), heartbeat watchdog sweep (`killPidTree` reaps stale sessions by PID tree), and `recover()` startup reconciliation (reaps orphaned CLIs, requeues/fails tasks, releases stale locks).
+- Property test: random 12-task stream over 2 repos sampled at 30ms — zero mutex/cap violations, all tasks complete in distinct worktrees.
+- Real-process tests: crash→rewrite-scenario→retry succeeds; sweep reaps a hung CLI by PID; `recover()` after simulated server kill.
+- Coverage gates wired into CI: worktree 88% lines / 82% branches, orchestrator 84% / 79% (threshold 70%).
+
 ## [0.3.0] - 2026-10-25 (M2)
 
 ### Added

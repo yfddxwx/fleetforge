@@ -14,7 +14,18 @@
   "files": [
     "dist"
   ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\"",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@fleetforge/schema": "workspace:*"
+  },
   "devDependencies": {
-    "vitest": "^3.0.5"
+    "vitest": "^3.0.5",
+    "@vitest/coverage-v8": "^3.0.5"
   }
 }
