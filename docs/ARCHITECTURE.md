@@ -165,6 +165,9 @@ interface DriverSession {
 - **并发两档上限**：全局 `maxConcurrent`、每仓库 `maxConcurrentPerRepo`，可配置。
 - **心跳**：运行中会话每 5s 更新 heartbeatAt；server 每 30s 巡检，超过阈值的会话
   判定孤儿（pid 已死或心跳超时）→ 按 pid 收割残留进程 → 按重启策略处理任务。
+- **后代 PID 快照**：每 10s（新会话 spawn 后 1.2s 额外一次）把每个运行中会话的全部
+  后代 PID 落库；硬杀 server 后即使 agent CLI 已死、工具孙进程仍存活，重启也会按
+  快照逐个收割（Windows 实测有效，见 ADR-0005）。
 - **崩溃重启策略**（可配，任务级覆盖）：`none` | `requeue`（重新排队，attempt+1，
   上限 maxAttempts）| `requeue` 默认 3 次。
 - **停机语义**：`server.stop()` 先 `scheduler.stop({killChildren:true})`（停车心跳/
