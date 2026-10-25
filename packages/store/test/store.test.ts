@@ -129,6 +129,19 @@ describe("locks repo", () => {
   });
 });
 
+describe("session process-tree snapshots", () => {
+  it("persists and reads descendant pids", () => {
+    makeTask();
+    const session = store.sessions.create({ id: "sess_desc", taskId: "task_test1", driver: "sim", model: null, attempt: 1 });
+    expect(store.sessions.getDescendants(session.id)).toEqual([]);
+    store.sessions.setDescendants(session.id, [111, 222]);
+    expect(store.sessions.getDescendants(session.id)).toEqual([111, 222]);
+    store.sessions.setDescendants(session.id, [222, 333]);
+    expect(store.sessions.getDescendants(session.id)).toEqual([222, 333]);
+    expect(store.sessions.getDescendants("sess_missing")).toEqual([]);
+  });
+});
+
 describe("settings repo", () => {
   it("round-trips JSON values", () => {
     store.settings.set("maxConcurrent", 4);

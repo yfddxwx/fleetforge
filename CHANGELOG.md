@@ -3,6 +3,26 @@
 All notable changes to FleetForge are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/) · [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [0.8.0] - 2026-10-25 (M8)
+
+### Added
+- Final acceptance E2E (CI, sim only): five-task fleet — three parallel tasks in isolated worktrees, one diff-review merge, one real conflict (base-side edit) marked `conflict`, one crash-once-and-auto-restart task (deterministic via a worktree attempt counter) — followed by a simulated server kill and a fresh server that reaps the orphan PID tree, requeues the task, and reports a consistent board. Plus a 50-session × 40-event ingestion burst (2,000 events, no backlog).
+- **Descendant process-tree reaping** (DB migration v2, `sessions.descendants`): the scheduler snapshots every live session's full descendant PID set every 10s (one CIM query on Windows, one `ps` on POSIX) plus an extra snapshot 1.2s after spawn. A hard-killed server's agent CLI can die while its tool subprocesses survive with their parents gone — `taskkill /T` cannot reach those. `recover()` and the watchdog sweep now kill both the recorded session PID and every surviving snapshotted descendant. Verified with a real CLI drill: hard-killed `fleet serve` left 2 tool grandchildren alive; restart reaped all of them (`SURVIVORS: none`) and requeued the tasks at attempt 2.
+- Graceful-shutdown semantics hardened: `Scheduler.stop({ killChildren })` + `SessionRunner.stop()` gate every background writer (heartbeat timers, in-flight pumps, queued kicks) so the DB closes cleanly; `fleet serve` SIGINT/SIGTERM reaps live agent process trees (no orphans), while `FleetServer.simulateCrash()` models a hard kill by leaving orphans for the next `recover()`.
+- Checkout materialization after merge: when the main worktree sits cleanly on the base branch, merged files appear there immediately (refs always move regardless).
+- Default concurrency raised to 4 global / 3 per repo, materialized into settings on first boot and applied live from the settings page (`Scheduler.updateLimits`).
+- Coverage tests for the orphan-reaping primitive (live PID, invalid PID, already-dead PID), both stop modes, and the descendant snapshot/recovery path.
+- Release readiness: `npm pack` verified for the CLI (dist + bin); README rewritten as full operator/architecture documentation.
+
+### Fixed
+- Unhandled `The database connection is not open` rejections from heartbeat timers and scheduler re-kicks firing after shutdown.
+- Scheduler tests now stop all schedulers before closing the DB (test hygiene matched to production teardown order).
+
+### Verified
+- 147 tests green across 12 suites, 0 unhandled rejections; build + lint clean; coverage gates: schema 98%/82%, worktree 86%/77%, orchestrator 81%/81% (lines/branches, threshold 70%).
+- `fleet doctor` healthy on a machine with no real agent CLIs (reports exactly what is missing); browser-verified web console merge flow.
+- `fleet doctor` healthy on a machine with no real agent CLIs (reports exactly what is missing); browser-verified web console merge flow.
+
 ## [0.7.0] - 2026-10-25 (M6 + M7)
 
 ### Added

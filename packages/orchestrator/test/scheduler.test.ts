@@ -3,13 +3,32 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { defaultRegistry, type DriverRegistry } from "@fleetforge/drivers";
+import { defaultRegistry, isPidAlive, type DriverRegistry } from "@fleetforge/drivers";
 import { newId } from "@fleetforge/schema";
 import { FleetStore } from "@fleetforge/store";
 import { PriceBook } from "@fleetforge/usage";
 import { WorktreeManager, gitOk } from "@fleetforge/worktree";
 import { EventIngestor } from "../src/ingest.js";
 import { Scheduler } from "../src/scheduler.js";
+import { spawn } from "node:child_process";
+
+/** Kill ONLY this pid (no tree): models an agent CLI dying while its tool
+ * subprocess survives — the zombie case the descendant snapshot must fix. */
+async function killOnlyPid(pid: number): Promise<void> {
+  if (process.platform === "win32") {
+    await new Promise<void>((resolve) => {
+      const taskkill = spawn("taskkill", ["/PID", String(pid), "/F"], { windowsHide: true });
+      taskkill.once("close", () => resolve());
+      taskkill.once("error", () => resolve());
+    });
+    return;
+  }
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    /* gone */
+  }
+}
 
 const nodeRequire = createRequire(import.meta.url);
 const simEntry = nodeRequire.resolve("@fleetforge/sim-agent");
@@ -36,6 +55,8 @@ async function makeRepo(name: string): Promise<string> {
   return repo;
 }
 
+const schedulers: Scheduler[] = [];
+
 function makeScheduler(overrides?: Partial<ConstructorParameters<typeof Scheduler>[4]>) {
   const ingestor = new EventIngestor(store, new PriceBook());
   const scheduler = new Scheduler(store, registry, ingestor, worktrees, {
@@ -45,6 +66,7 @@ function makeScheduler(overrides?: Partial<ConstructorParameters<typeof Schedule
     sweepIntervalMs: 60_000,
     ...overrides,
   });
+  schedulers.push(scheduler);
   return scheduler;
 }
 
@@ -85,6 +107,10 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  // every scheduler must stop its timers/in-flight writers before the DB closes
+  for (const scheduler of schedulers.splice(0)) {
+    await scheduler.stop({ killChildren: true });
+  }
   store.close();
   // give reaped/cancelled child processes a beat to release handles (Windows)
   await new Promise((r) => setTimeout(r, 300));
@@ -335,4 +361,129 @@ describe("Scheduler concurrency & isolation", () => {
     await until(() => store.tasks.require(task.id).status === "failed", 15_000);
     expect(store.tasks.require(task.id).error).toContain("no commits");
   });
+
+  it(
+    "stop({killChildren:true}) reaps the live agent tree; later dispatch is a no-op",
+    { timeout: 60_000 },
+    async () => {
+      const shellsRegistry = defaultRegistry({
+        entry: simEntry,
+        shells: [{ id: "sleeper", config: { command: process.execPath, argsTemplate: ["-e", SLEEPER_SCRIPT] } }],
+      });
+      registry = shellsRegistry;
+      const scheduler = makeScheduler();
+      const task = queueTask("sleeper", "60000", repoA, { maxAttempts: 2 });
+      scheduler.dispatch(task.id);
+      await until(() => store.tasks.require(task.id).status === "running", 15_000);
+      const session = store.sessions.require(store.tasks.require(task.id).sessionId as string);
+      const pid = session.pid as number;
+      expect(isPidAlive(pid)).toBe(true);
+
+      await scheduler.stop({ killChildren: true });
+
+      const deadline = Date.now() + 8000;
+      while (isPidAlive(pid) && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(isPidAlive(pid)).toBe(false);
+
+      // post-stop dispatch must not start anything (no DB writes after teardown)
+      const late = queueTask("sleeper", "100", repoB);
+      scheduler.dispatch(late.id);
+      await new Promise((r) => setTimeout(r, 300));
+      expect(store.tasks.require(late.id).status).toBe("queued");
+      expect(await scheduler.sweep()).toEqual([]);
+    },
+  );
+
+  it(
+    "descendant snapshot lets recover() reap orphaned tool grandchildren",
+    { timeout: 90_000 },
+    async () => {
+      // sim blocks in a shell step; its tool child is a grandchild of the server
+      const scenarioFile = join(trackDir(mkdtempSync(join(tmpdir(), "fleetforge-tree-"))), "long.json");
+      writeFileSync(
+        scenarioFile,
+        JSON.stringify({
+          name: "tree",
+          steps: [{ type: "shell", command: 'node -e "setTimeout(()=>{},30000)"' }],
+        }),
+      );
+      const scheduler = makeScheduler();
+      const task = queueTask("sim", "@" + scenarioFile, repoA, { maxAttempts: 2 });
+      scheduler.dispatch(task.id);
+      await until(() => store.tasks.require(task.id).status === "running", 20_000);
+      const session = store.sessions.require(store.tasks.require(task.id).sessionId as string);
+      const simPid = session.pid as number;
+
+      // snapshot after the shell step spawned its tool process
+      await new Promise((r) => setTimeout(r, 1500));
+      await scheduler.snapshotTrees();
+      const descendants = store.sessions.getDescendants(session.id);
+      expect(descendants.length).toBeGreaterThan(0);
+      expect(descendants.filter((pid) => isPidAlive(pid)).length).toBeGreaterThan(0);
+
+      // crash-sim: server writers stop; then the agent CLI itself dies,
+      // leaving its tool grandchild alive (classic zombie case)
+      await scheduler.stop({ killChildren: false });
+      await killOnlyPid(simPid);
+      await new Promise((r) => setTimeout(r, 800));
+      expect(isPidAlive(simPid)).toBe(false);
+      // the intermediate cmd.exe dies with its parent; the tool grandchild
+      // survives — exactly the process recover() must find via the snapshot
+      const survivors = descendants.filter((pid) => isPidAlive(pid));
+      expect(survivors.length).toBeGreaterThan(0);
+      const toolPid = survivors[0] as number;
+
+      // next server must reap the recorded descendant
+      const revived = makeScheduler();
+      const report = await revived.recover();
+      expect(report.reaped).toContain(session.id);
+      const deadline = Date.now() + 8000;
+      while (isPidAlive(toolPid) && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(isPidAlive(toolPid)).toBe(false);
+      expect(store.sessions.require(session.id).status).toBe("orphan-killed");
+      await revived.cancel(task.id);
+      await until(() => ["cancelled", "failed", "queued", "running"].includes(store.tasks.require(task.id).status), 15_000);
+      if (store.tasks.require(task.id).status === "running") await revived.cancel(task.id);
+      await revived.stop({ killChildren: true });
+    },
+  );
+
+  it(
+    "stop({killChildren:false}) leaves the orphan for the next recover()",
+    { timeout: 60_000 },
+    async () => {
+      const shellsRegistry = defaultRegistry({
+        entry: simEntry,
+        shells: [{ id: "sleeper", config: { command: process.execPath, argsTemplate: ["-e", SLEEPER_SCRIPT] } }],
+      });
+      registry = shellsRegistry;
+      const scheduler = makeScheduler();
+      const task = queueTask("sleeper", "60000", repoA, { maxAttempts: 2 });
+      scheduler.dispatch(task.id);
+      await until(() => store.tasks.require(task.id).status === "running", 15_000);
+      const session = store.sessions.require(store.tasks.require(task.id).sessionId as string);
+      const pid = session.pid as number;
+
+      // crash-sim: writers stop, child survives as an OS orphan
+      await scheduler.stop({ killChildren: false });
+      expect(isPidAlive(pid)).toBe(true);
+
+      // a fresh scheduler over the same store recovers: reaps by PID tree
+      const revived = makeScheduler();
+      const report = await revived.recover();
+      expect(report.reaped).toContain(session.id);
+      const deadline = Date.now() + 8000;
+      while (isPidAlive(pid) && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(isPidAlive(pid)).toBe(false);
+      expect(store.sessions.require(session.id).status).toBe("orphan-killed");
+      await revived.cancel(task.id);
+      await until(() => ["cancelled", "failed"].includes(store.tasks.require(task.id).status), 15_000);
+    },
+  );
 });

@@ -654,7 +654,7 @@ function SettingsView() {
         <button onClick={() => void save()} className="ml-auto rounded bg-cyan-800 px-3 py-1 text-xs hover:bg-cyan-700">save</button>
       </div>
       <div className="space-y-2">
-        {num("maxConcurrent", "global concurrency cap", "max tasks running at once (restart `fleet serve` to apply)")}
+        {num("maxConcurrent", "global concurrency cap", "max tasks running at once (applies immediately)")}
         {num("maxConcurrentPerRepo", "per-repo concurrency cap", "max tasks per repository")}
       </div>
       <p className="mt-4 text-[10px] text-slate-600">

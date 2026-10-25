@@ -4,6 +4,7 @@ import type { Task } from "@fleetforge/schema";
 import type { FleetStore } from "@fleetforge/store";
 import { WorktreeManager, WorktreeError } from "@fleetforge/worktree";
 import { killPidTree } from "./kill-pid.js";
+import { snapshotDescendants } from "./process-tree.js";
 import { SessionRunner, type RunResult } from "./runner.js";
 import { EventIngestor } from "./ingest.js";
 
@@ -14,13 +15,16 @@ export interface SchedulerOptions {
   heartbeatTimeoutMs: number;
   /** Sweep interval for the watchdog. */
   sweepIntervalMs: number;
+  /** How often live sessions' process trees are snapshotted to the DB. */
+  treeSnapshotMs: number;
 }
 
 export const DEFAULT_SCHEDULER_OPTIONS: SchedulerOptions = {
-  maxConcurrent: 3,
-  maxConcurrentPerRepo: 2,
+  maxConcurrent: 4,
+  maxConcurrentPerRepo: 3,
   heartbeatTimeoutMs: 30_000,
   sweepIntervalMs: 10_000,
+  treeSnapshotMs: 10_000,
 };
 
 export interface DispatchOutcome {
@@ -38,14 +42,16 @@ export interface DispatchOutcome {
  *  - recover(): startup reconciliation after a server kill
  */
 export class Scheduler {
-  private readonly options: SchedulerOptions;
+  private options: SchedulerOptions;
   private readonly runner: SessionRunner;
   private sweepTimer: NodeJS.Timeout | null = null;
+  private treeTimer: NodeJS.Timeout | null = null;
   private readonly inflight = new Set<string>();
   private readonly starting = new Set<string>();
   private readonly onEventCallbacks: Array<(taskId: string, envelope: unknown) => void> = [];
   private kicking = false;
   private kickQueued = false;
+  private stopped = false;
 
   constructor(
     private readonly store: FleetStore,
@@ -109,6 +115,7 @@ export class Scheduler {
 
   /** Try to start queued tasks while capacity allows. */
   async kick(): Promise<void> {
+    if (this.stopped) return;
     if (this.kicking) {
       this.kickQueued = true;
       return;
@@ -137,6 +144,26 @@ export class Scheduler {
     }
   }
 
+  /**
+   * Tear down all background writers before the DB closes.
+   * `killChildren=false` models a hard crash: live agent trees stay orphaned
+   * in the OS so the next server's recover() has something real to reap.
+   */
+  async stop(options: { killChildren: boolean }): Promise<void> {
+    this.stopped = true;
+    this.stopWatchdog();
+    // let an in-flight kick loop observe the flag
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await this.runner.stop(options.killChildren);
+  }
+
+  /** Apply concurrency-limit changes from the settings page immediately. */
+  updateLimits(limits: { maxConcurrent?: number; maxConcurrentPerRepo?: number }): void {
+    if (limits.maxConcurrent !== undefined) this.options.maxConcurrent = limits.maxConcurrent;
+    if (limits.maxConcurrentPerRepo !== undefined) this.options.maxConcurrentPerRepo = limits.maxConcurrentPerRepo;
+    void this.kick();
+  }
+
   /** Tasks already running plus tasks currently being prepared. */
   private effectiveRunning(): number {
     return this.store.tasks.list({ status: "running" }).length + this.starting.size;
@@ -151,6 +178,10 @@ export class Scheduler {
 
   /** Create worktree + acquire the DB lock, then run the session (parallel). */
   private async prepareAndRun(task: Task): Promise<void> {
+    if (this.stopped) {
+      this.starting.delete(task.id);
+      return;
+    }
     try {
       let prepared = task;
       if (!task.worktreePath || !task.branch) {
@@ -190,12 +221,21 @@ export class Scheduler {
         onEvent: (envelope) => {
           for (const cb of this.onEventCallbacks) cb(prepared.id, envelope);
         },
+        onSessionStart: () => {
+          // capture early descendants (tool subprocesses) before a possible crash
+          const timer = setTimeout(() => {
+            void this.snapshotTrees();
+          }, 1200);
+          timer.unref?.();
+        },
       });
       this.finalizeAfterRun(prepared, result);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.store.tasks.update(task.id, { status: "failed", error: message, finishedAt: Date.now() });
-      this.store.locks.releaseByTask(task.id);
+      if (!this.stopped) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.store.tasks.update(task.id, { status: "failed", error: message, finishedAt: Date.now() });
+        this.store.locks.releaseByTask(task.id);
+      }
     } finally {
       this.starting.delete(task.id);
       this.inflight.delete(task.id);
@@ -205,6 +245,7 @@ export class Scheduler {
 
   /** Crash restart policy: requeue while attempts remain, else mark failed. */
   private finalizeAfterRun(task: Task, result: RunResult): void {
+    if (this.stopped) return;
     this.store.locks.releaseByTask(task.id);
     if (result.status === "failed" && task.attempt < task.maxAttempts) {
       const attempt = task.attempt + 1;
@@ -222,13 +263,12 @@ export class Scheduler {
    * and their tasks requeued per policy. Returns reaped session ids.
    */
   async sweep(): Promise<string[]> {
+    if (this.stopped) return [];
     const now = Date.now();
     const reaped: string[] = [];
     for (const session of this.store.sessions.listByStatus("running")) {
       if (now - session.heartbeatAt < this.options.heartbeatTimeoutMs) continue;
-      if (session.pid !== null && isPidAlive(session.pid)) {
-        await killPidTree(session.pid);
-      }
+      await this.reapSession(session);
       this.store.sessions.complete(session.id, {
         status: "orphan-killed",
         exitCode: null,
@@ -253,12 +293,52 @@ export class Scheduler {
     return reaped;
   }
 
+  /**
+   * Kill a session's whole process tree: the recorded token first (when alive)
+   * and every descendant captured by the periodic snapshot. The snapshot covers
+   * the hard-kill case where the agent CLI died but its tool subprocesses
+   * survived (their parents are gone, so `taskkill /T` can't reach them).
+   */
+  private async reapSession(session: { id: string; pid: number | null }): Promise<void> {
+    if (session.pid !== null && isPidAlive(session.pid)) {
+      await killPidTree(session.pid);
+    }
+    for (const descendant of this.store.sessions.getDescendants(session.id)) {
+      if (descendant !== session.pid && isPidAlive(descendant)) {
+        await killPidTree(descendant);
+      }
+    }
+  }
+
+  /**
+   * Persist current process-tree snapshots for all live sessions. Called on a
+   * timer so a later server incarnation can reap descendants by recorded PID.
+   */
+  async snapshotTrees(): Promise<void> {
+    if (this.stopped) return;
+    const live = this.store.sessions
+      .listByStatus("running")
+      .filter((session): session is typeof session & { pid: number } => typeof session.pid === "number");
+    if (live.length === 0) return;
+    const trees = await snapshotDescendants(live.map((session) => session.pid));
+    if (this.stopped) return;
+    for (const session of live) {
+      const descendants = trees.get(session.pid) ?? [];
+      const merged = new Set([...this.store.sessions.getDescendants(session.id), ...descendants]);
+      this.store.sessions.setDescendants(session.id, [...merged]);
+    }
+  }
+
   startWatchdog(): void {
     if (this.sweepTimer) return;
     this.sweepTimer = setInterval(() => {
       void this.sweep();
     }, this.options.sweepIntervalMs);
     this.sweepTimer.unref?.();
+    this.treeTimer = setInterval(() => {
+      void this.snapshotTrees();
+    }, this.options.treeSnapshotMs);
+    this.treeTimer.unref?.();
   }
 
   stopWatchdog(): void {
@@ -266,21 +346,24 @@ export class Scheduler {
       clearInterval(this.sweepTimer);
       this.sweepTimer = null;
     }
+    if (this.treeTimer) {
+      clearInterval(this.treeTimer);
+      this.treeTimer = null;
+    }
   }
 
   /**
    * Startup reconciliation after a server kill (ADR-0005):
-   * live PIDs of "running" sessions are orphaned CLIs — reap them by tree,
-   * mark sessions orphan-killed, then requeue tasks per restart policy.
+   * live PIDs of "running" sessions are orphaned CLIs — reap them by tree
+   * (plus every recorded descendant), mark sessions orphan-killed, then
+   * requeue tasks per restart policy.
    */
   async recover(): Promise<{ reaped: string[]; requeued: string[]; failed: string[] }> {
     const reaped: string[] = [];
     const requeued: string[] = [];
     const failed: string[] = [];
     for (const session of this.store.sessions.listByStatus("running")) {
-      if (session.pid !== null && isPidAlive(session.pid)) {
-        await killPidTree(session.pid);
-      }
+      await this.reapSession(session);
       this.store.sessions.complete(session.id, {
         status: "orphan-killed",
         exitCode: null,

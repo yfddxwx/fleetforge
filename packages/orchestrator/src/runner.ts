@@ -32,6 +32,8 @@ export interface RunOptions {
 export class SessionRunner {
   private readonly active = new Map<string, DriverSession>();
   private readonly cancelled = new Set<string>();
+  private readonly heartbeats = new Map<string, ReturnType<typeof setInterval>>();
+  private stopped = false;
 
   constructor(
     private readonly store: FleetStore,
@@ -41,6 +43,28 @@ export class SessionRunner {
 
   isRunning(sessionId: string): boolean {
     return this.active.has(sessionId);
+  }
+
+  /**
+   * Stop all writers: heartbeat timers + in-flight event pumps. This is the
+   * teardown called before the DB closes (ADR-0005). `killChildren` decides
+   * whether live agent process trees are reaped now (graceful shutdown) or
+   * left as orphans for the next server's recover() (crash simulation).
+   */
+  async stop(killChildren: boolean): Promise<void> {
+    this.stopped = true;
+    for (const timer of this.heartbeats.values()) clearInterval(timer);
+    this.heartbeats.clear();
+    if (killChildren) {
+      const sessions = [...this.active.values()];
+      await Promise.all(
+        sessions.map((session) =>
+          session.cancel().catch((error: unknown) => {
+            void error; // best-effort tree kill
+          }),
+        ),
+      );
+    }
   }
 
   /** Push an additional instruction into a live session (M4). */
@@ -70,6 +94,16 @@ export class SessionRunner {
   async run(task: Task, options: RunOptions = {}): Promise<RunResult> {
     const now = Date.now();
     const sessionId = newId("sess");
+    const abort = (reason: string): RunResult => ({
+      sessionId,
+      status: "cancelled",
+      exitCode: null,
+      error: reason,
+      costUsd: 0,
+      externalRef: null,
+    });
+
+    if (this.stopped) return abort("runner stopped before dispatch");
 
     this.store.sessions.create({
       id: sessionId,
@@ -102,6 +136,7 @@ export class SessionRunner {
     }
 
     const detect = await driver.detect();
+    if (this.stopped) return abort("runner stopped during detect");
     if (!detect.installed) {
       const error = new DriverNotInstalledError(driver.id, detect.hint ?? "not found");
       this.finalize(sessionId, task.id, "failed", null, error.message);
@@ -132,15 +167,21 @@ export class SessionRunner {
     options.onSessionStart?.({ sessionId, pid: session.pid, driver });
 
     const heartbeat = setInterval(
-      () => this.store.sessions.heartbeat(sessionId),
+      () => {
+        if (this.stopped) return; // store may be closed after a crash-sim stop
+        this.store.sessions.heartbeat(sessionId);
+      },
       options.heartbeatMs ?? 5000,
     );
+    heartbeat.unref?.();
+    this.heartbeats.set(sessionId, heartbeat);
 
     let lastCompleted: { status: "completed" | "failed" | "cancelled"; error: string | null } | null = null;
     let lastLog: string | null = null;
 
     try {
       for await (const body of session.events) {
+        if (this.stopped) break; // teardown: stop persisting into a closing DB
         const envelope = this.ingestor.ingest(sessionId, body);
         options.onEvent?.(envelope);
         if (envelope.kind === "session.completed") {
@@ -153,12 +194,21 @@ export class SessionRunner {
           if (text) lastLog = text;
         }
       }
-      this.store.sessions.heartbeat(sessionId);
-      const externalRef = session.externalRef?.() ?? null;
-      if (externalRef) this.store.sessions.setExternalRef(sessionId, externalRef);
+      if (!this.stopped) {
+        this.store.sessions.heartbeat(sessionId);
+        const externalRef = session.externalRef?.() ?? null;
+        if (externalRef) this.store.sessions.setExternalRef(sessionId, externalRef);
+      }
     } finally {
       clearInterval(heartbeat);
+      this.heartbeats.delete(sessionId);
       this.active.delete(sessionId);
+    }
+
+    if (this.stopped) {
+      // DB is closing after a crash-sim stop: don't write final state; the
+      // orphan's session row is reconciled by the next server's recover().
+      return abort("runner stopped mid-session");
     }
 
     const exit = await session.whenExit();

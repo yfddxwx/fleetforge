@@ -67,9 +67,18 @@ export class FleetServer {
     this.worktrees = new WorktreeManager(join(options.stateDir, "worktrees"));
     this.reviewer = new Reviewer(this.worktrees);
     const ingestor = new EventIngestor(this.store, this.priceBook);
+    const maxConcurrent = this.store.settings.get<number>("maxConcurrent") ?? 4;
+    const maxConcurrentPerRepo = this.store.settings.get<number>("maxConcurrentPerRepo") ?? 3;
+    // Materialize defaults so the settings page shows real values from day one.
+    if (this.store.settings.get<number>("maxConcurrent") === null) {
+      this.store.settings.set("maxConcurrent", maxConcurrent);
+    }
+    if (this.store.settings.get<number>("maxConcurrentPerRepo") === null) {
+      this.store.settings.set("maxConcurrentPerRepo", maxConcurrentPerRepo);
+    }
     this.scheduler = new Scheduler(this.store, this.registry, ingestor, this.worktrees, {
-      maxConcurrent: this.store.settings.get<number>("maxConcurrent") ?? 3,
-      maxConcurrentPerRepo: this.store.settings.get<number>("maxConcurrentPerRepo") ?? 2,
+      maxConcurrent,
+      maxConcurrentPerRepo,
     });
     this.scheduler.onEvent((taskId, envelope) => {
       this.broadcast({ type: "event", taskId, envelope: envelope as EventEnvelope });
@@ -113,8 +122,24 @@ export class FleetServer {
     return { port: actualPort };
   }
 
+  /**
+   * Graceful shutdown: stop writers, reap live agent process trees, close
+   * sockets/app/db. No orphan CLIs survive a clean stop (ADR-0005).
+   */
   async stop(): Promise<void> {
-    this.scheduler.stopWatchdog();
+    await this.scheduler.stop({ killChildren: true });
+    for (const socket of this.clients) socket.close();
+    await this.app.close();
+    this.store.close();
+  }
+
+  /**
+   * Test/drill hook that models a hard kill: background writers stop and the
+   * DB closes, but live agent trees are deliberately left orphaned so the next
+   * server's recover() must reap them and restore task state.
+   */
+  async simulateCrash(): Promise<void> {
+    await this.scheduler.stop({ killChildren: false });
     for (const socket of this.clients) socket.close();
     await this.app.close();
     this.store.close();
@@ -419,6 +444,12 @@ export class FleetServer {
       for (const [key, value] of Object.entries(body)) {
         this.store.settings.set(key, value);
       }
+      const maxConcurrent = typeof body["maxConcurrent"] === "number" ? body["maxConcurrent"] : undefined;
+      const maxConcurrentPerRepo = typeof body["maxConcurrentPerRepo"] === "number" ? body["maxConcurrentPerRepo"] : undefined;
+      this.scheduler.updateLimits({
+        ...(maxConcurrent !== undefined ? { maxConcurrent } : {}),
+        ...(maxConcurrentPerRepo !== undefined ? { maxConcurrentPerRepo } : {}),
+      });
       this.broadcast({ type: "notification", level: "info", text: "settings updated" });
       return { settings: this.store.settings.all() };
     });

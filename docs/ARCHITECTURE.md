@@ -167,6 +167,9 @@ interface DriverSession {
   判定孤儿（pid 已死或心跳超时）→ 按 pid 收割残留进程 → 按重启策略处理任务。
 - **崩溃重启策略**（可配，任务级覆盖）：`none` | `requeue`（重新排队，attempt+1，
   上限 maxAttempts）| `requeue` 默认 3 次。
+- **停机语义**：`server.stop()` 先 `scheduler.stop({killChildren:true})`（停车心跳/
+  在途泵与排队的 kick，再按进程树收割），最后关库——优雅退出不留孤儿。
+  测试用 `simulateCrash()` 只关写入、故意留下孤儿进程，交给下次 `recover()` 真收割。
 - 合并前可 **dry-run 预演**；**丢弃带未提交更改的任务必须显式确认**；
   **默认绝不自动 push**。
 

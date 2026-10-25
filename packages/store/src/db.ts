@@ -106,6 +106,17 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 2,
+    name: "session-descendant-pids",
+    up: (db) => {
+      // Periodic snapshots of an agent's process tree: if the server is hard-
+      // killed, the agent's own children/grandchildren may outlive it while the
+      // recorded session pid is already gone. These snapshots are what the
+      // startup sweep reaps (ADR-0005).
+      db.exec(`ALTER TABLE sessions ADD COLUMN descendants TEXT NOT NULL DEFAULT '[]'`);
+    },
+  },
 ];
 
 /**

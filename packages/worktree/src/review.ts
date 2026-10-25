@@ -155,7 +155,10 @@ export class Reviewer {
 
     const repo = spec.repoPath;
     const branchHead = (await gitOk(repo, ["rev-parse", spec.branch])).trim();
-    const baseHead = (await gitOk(repo, ["rev-parse", spec.baseBranch])).trim();
+    // Record whether the main worktree can be fast-forwarded in place
+    // (clean and on the base branch) BEFORE moving the ref — after update-ref
+    // the status would show phantom deletions.
+    const syncable = await this.mainWorktreeSyncable(repo, spec.baseBranch);
 
     if (strategy === "ff") {
       const isAncestor = await git(repo, ["merge-base", "--is-ancestor", spec.baseBranch, spec.branch]);
@@ -163,6 +166,7 @@ export class Reviewer {
         throw new Error(`branch is not ahead of ${spec.baseBranch}; use squash or merge strategy`);
       }
       await gitOk(repo, ["update-ref", `refs/heads/${spec.baseBranch}`, branchHead]);
+      if (syncable) await this.materialize(repo, spec.baseBranch);
       return { merged: true, strategy, dryRun: false, commit: branchHead, conflicts: [] };
     }
 
@@ -196,8 +200,8 @@ export class Reviewer {
         }
         if (commitOid) {
           await gitOk(repo, ["update-ref", `refs/heads/${spec.baseBranch}`, commitOid]);
+          if (syncable) await this.materialize(repo, spec.baseBranch);
         }
-        void baseHead;
         return { merged: true, strategy, dryRun: false, commit: commitOid, conflicts: [] };
       } finally {
         await git(repo, ["worktree", "remove", "--force", tmp]);
@@ -205,6 +209,22 @@ export class Reviewer {
     } finally {
       if (existsSync(tmp)) rmSync(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }
+  }
+
+  /**
+   * Merges move refs without touching checkouts. When the main repository sits
+   * cleanly on the base branch, the merged files are materialized there so
+   * operators see the result immediately; otherwise only the ref moves.
+   */
+  private async mainWorktreeSyncable(repo: string, baseBranch: string): Promise<boolean> {
+    const head = await git(repo, ["symbolic-ref", "--quiet", "HEAD"]);
+    if (!head.ok || head.stdout.trim() !== `refs/heads/${baseBranch}`) return false;
+    const status = await git(repo, ["status", "--porcelain"]);
+    return status.ok && status.stdout.trim().length === 0;
+  }
+
+  private async materialize(repo: string, baseBranch: string): Promise<void> {
+    await git(repo, ["checkout", "--quiet", baseBranch, "--", "."]);
   }
 
   /**

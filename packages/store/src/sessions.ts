@@ -17,6 +17,7 @@ interface SessionRow {
   input_tokens: number;
   output_tokens: number;
   cost_usd: number;
+  descendants: string;
 }
 
 function rowToSession(row: SessionRow): AgentSession {
@@ -113,6 +114,24 @@ export class SessionRepo {
     this.db
       .prepare("UPDATE sessions SET status = @status, exit_code = @exitCode, ended_at = @endedAt WHERE id = @id")
       .run({ id, ...patch });
+  }
+
+  /** Persist the current process-tree snapshot (descendant PIDs). */
+  setDescendants(id: string, pids: number[]): void {
+    this.db.prepare("UPDATE sessions SET descendants = ? WHERE id = ?").run(JSON.stringify(pids), id);
+  }
+
+  getDescendants(id: string): number[] {
+    const row = this.db.prepare("SELECT descendants FROM sessions WHERE id = ?").get(id) as
+      | { descendants: string }
+      | undefined;
+    if (!row) return [];
+    try {
+      const parsed = JSON.parse(row.descendants) as unknown;
+      return Array.isArray(parsed) ? parsed.filter((p): p is number => typeof p === "number") : [];
+    } catch {
+      return [];
+    }
   }
 
   addTokens(id: string, delta: { inputTokens: number; outputTokens: number; costUsd: number }): void {
